@@ -1,1 +1,4 @@
-./studio/.env
+.env
+.env.*
+**/.env
+**/.env.*
