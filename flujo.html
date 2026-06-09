@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Flujo del Agente con Subgrafos y Map-Reduce</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; padding: 2rem; }
+
+  h1 { font-size: 1.6rem; font-weight: 700; color: #7dd3fc; margin-bottom: 0.3rem; }
+  .subtitle { color: #64748b; font-size: 0.88rem; margin-bottom: 2.5rem; }
+  h2.section-title {
+    font-size: 1.05rem; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.08em;
+    margin: 2.5rem auto 1rem; border-bottom: 1px solid #1e293b;
+    padding-bottom: 0.5rem; max-width: 920px;
+  }
+
+  code { background: #0f172a; color: #f472b6; padding: 1px 6px; border-radius: 3px; font-family: 'Courier New', monospace; font-size: 0.78rem; }
+  pre  { background: #0d1117; border: 1px solid #1e3a5f; border-radius: 8px; padding: 1rem 1.2rem; font-family: 'Courier New', monospace; font-size: 0.78rem; line-height: 1.7; overflow-x: auto; color: #cbd5e1; }
+  .kw { color: #7dd3fc; } .cn { color: #86efac; } .fn { color: #fbbf24; }
+  .cm { color: #475569; font-style: italic; } .st { color: #f9a8d4; } .nb { color: #c4b5fd; }
+
+  /* ── NODES ────────────────────────────────────────────────── */
+  .node { border-radius: 8px; padding: 0.6rem 1.2rem; font-weight: 600; font-size: 0.82rem; text-align: center; min-width: 148px; }
+  .node-start { background:#1e3a5f; border:2px solid #3b82f6; color:#93c5fd; }
+  .node-agent { background:#1e3a2f; border:2px solid #22c55e; color:#86efac; min-width:210px; }
+  .node-tools { background:#2d1f3a; border:2px solid #a855f7; color:#d8b4fe; }
+  .node-end   { background:#3a1f1f; border:2px solid #ef4444; color:#fca5a5; }
+  .node-sub   { background:#162032; border:2px solid #0ea5e9; color:#7dd3fc; min-width:138px; font-size:0.78rem; }
+  .node-map   { background:#1a2c1a; border:2px solid #4ade80; color:#86efac; min-width:130px; font-size:0.78rem; }
+  .node-reduce{ background:#2c1a10; border:2px solid #fb923c; color:#fdba74; min-width:148px; font-size:0.78rem; }
+  .node-gw    { background:#1e1e2e; border:2px solid #818cf8; color:#c7d2fe; min-width:148px; font-size:0.78rem; }
+  .badge { font-size:0.62rem; font-weight:400; color:#64748b; display:block; margin-top:2px; }
+
+  .vline { width:2px; height:20px; background:#334155; margin:0 auto; position:relative; }
+  .vline::after { content:'▼'; position:absolute; bottom:-9px; left:50%; transform:translateX(-50%); color:#475569; font-size:9px; }
+  .vline-sm { width:2px; height:12px; background:#334155; margin:2px auto; }
+  .badge-cond { font-size:0.65rem; color:#94a3b8; text-align:center; margin:4px 0 0; }
+  .loop-tag { font-size:0.65rem; color:#fb923c; border:1px dashed #f97316; border-radius:5px; padding:2px 8px; background:#1c1208; margin-top:2px; }
+
+  /* ── LAYOUT ───────────────────────────────────────────────── */
+  .flow { display:flex; flex-direction:column; align-items:center; max-width:920px; margin:0 auto 0.5rem; }
+  .fork { display:flex; gap:2rem; justify-content:center; align-items:flex-start; width:100%; margin-top:12px; }
+  .branch { display:flex; flex-direction:column; align-items:center; }
+
+  /* ── PARALLEL BOX ─────────────────────────────────────────── */
+  .par-wrap { position:relative; width:100%; }
+  .par-label { font-size:0.62rem; color:#60a5fa; border:1px solid #1e40af; background:#0d1f3a; border-radius:4px; padding:2px 8px; position:absolute; top:-10px; left:50%; transform:translateX(-50%); white-space:nowrap; z-index:2; }
+  .par-box   { border:1px dashed #1e40af; border-radius:10px; padding:1.3rem 0.8rem 0.8rem; display:flex; gap:1.5rem; justify-content:center; background:rgba(14,30,60,0.35); }
+
+  /* ── MAP-REDUCE BOX ──────────────────────────────────────── */
+  .mr-wrap { position:relative; margin-top:12px; }
+  .mr-label { font-size:0.62rem; color:#4ade80; border:1px solid #166534; background:#052e16; border-radius:4px; padding:2px 8px; position:absolute; top:-10px; left:50%; transform:translateX(-50%); white-space:nowrap; z-index:2; }
+  .mr-box   { border:1px dashed #166534; border-radius:10px; padding:1.3rem 0.8rem 0.8rem; display:flex; flex-direction:column; align-items:center; gap:4px; background:rgba(5,46,22,0.25); min-width:180px; }
+
+  .sub-col { display:flex; flex-direction:column; align-items:center; gap:3px; }
+  .sub-title { font-size:0.62rem; color:#64748b; margin-bottom:2px; }
+  .priv-tag { font-size:0.58rem; color:#818cf8; background:#1e1b4b; border:1px solid #3730a3; border-radius:3px; padding:1px 5px; margin:1px 0; }
+  .out-tag  { font-size:0.58rem; color:#4ade80; background:#052e16; border:1px solid #166534; border-radius:3px; padding:1px 5px; margin:1px 0; }
+  .send-tag { font-size:0.58rem; color:#fbbf24; background:#1c1208; border:1px solid #d97706; border-radius:3px; padding:1px 5px; margin:1px 0; }
+
+  /* ── CARDS ────────────────────────────────────────────────── */
+  .cards { max-width:920px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr 1fr; gap:1.2rem; }
+  .card { background:#1e293b; border-radius:10px; border:1px solid #334155; padding:1.1rem; }
+  .card h3 { font-size:0.88rem; font-weight:700; color:#7dd3fc; margin-bottom:0.15rem; }
+  .card.mr h3 { color:#4ade80; }
+  .card-sub { font-size:0.72rem; color:#64748b; margin-bottom:0.9rem; }
+
+  .node-row { display:flex; align-items:flex-start; gap:0.6rem; margin-bottom:0.55rem; padding:0.5rem 0.65rem; border-radius:7px; }
+  .nr-shared { background:#0d2a1e; border:1px solid #166534; }
+  .nr-priv   { background:#12103a; border:1px solid #3730a3; }
+  .nr-map    { background:#0d2015; border:1px solid #15803d; }
+  .nr-reduce { background:#1c1208; border:1px solid #d97706; }
+  .nr-name { font-size:0.8rem; font-weight:700; color:#e2e8f0; min-width:110px; flex-shrink:0; }
+  .nr-desc { font-size:0.76rem; color:#94a3b8; line-height:1.5; }
+  .arrow-row { font-size:0.68rem; color:#475569; margin:0 0 0.55rem 0.65rem; }
+  .tag { display:inline-block; font-size:0.6rem; padding:1px 5px; border-radius:3px; font-weight:600; margin-right:3px; }
+  .tag-in  { background:#064e3b; color:#6ee7b7; border:1px solid #065f46; }
+  .tag-out { background:#4c1d95; color:#c4b5fd; border:1px solid #5b21b6; }
+  .tag-prv { background:#1e1b4b; color:#a5b4fc; border:1px solid #3730a3; }
+  .tag-snd { background:#1c1208; color:#fbbf24; border:1px solid #d97706; }
+
+  /* ── DECL / RULE ──────────────────────────────────────────── */
+  .decl { max-width:920px; margin:0 auto; }
+  .decl-grid { display:grid; grid-template-columns:1fr 1fr; gap:1.4rem; margin-bottom:1.4rem; }
+  .rule-grid { max-width:920px; margin:0 auto; display:grid; grid-template-columns:1fr 1fr 1fr 1fr; gap:1rem; }
+  .rule-card { background:#1e293b; border-radius:8px; border:1px solid #334155; padding:0.9rem; font-size:0.78rem; }
+  .rule-card h4 { font-size:0.75rem; color:#7dd3fc; font-weight:700; margin-bottom:0.5rem; text-transform:uppercase; letter-spacing:0.06em; }
+  .rule-card.mr h4 { color:#4ade80; }
+  .rule-card p, .rule-card li { color:#94a3b8; line-height:1.6; }
+  .rule-card ul { list-style:none; } .rule-card li::before { content:'→ '; color:#475569; }
+</style>
+</head>
+<body>
+
+<h1>Agente con Subgrafos + Map-Reduce</h1>
+<p class="subtitle">LangGraph · AzureOpenAI · SqliteSaver · 2 subgrafos · Send API map-reduce</p>
+
+<!-- ═══════════ FLOW ═══════════════════════════════════════════ -->
+<h2 class="section-title">Flujo completo del grafo</h2>
+<div class="flow">
+  <div class="node node-start">START</div>
+  <div class="vline"></div>
+  <div class="node node-agent">agente<span class="badge">llm_with_tools.invoke()</span></div>
+  <div class="badge-cond"><code>route_from_agente()</code> — fan-out a 3 ramas en paralelo</div>
+
+  <div class="fork">
+
+    <!-- TOOLS -->
+    <div class="branch">
+      <div style="font-size:0.65rem;color:#94a3b8;margin-bottom:3px">tool_calls pendientes</div>
+      <div class="vline"></div>
+      <div class="node node-tools">tools<span class="badge">ToolNode</span></div>
+      <div class="vline"></div>
+      <div class="loop-tag">↩ vuelve a agente</div>
+    </div>
+
+    <!-- SUBGRAPHS + MAP-REDUCE (sin tool calls) -->
+    <div class="branch" style="flex:1;max-width:560px">
+      <div style="font-size:0.65rem;color:#94a3b8;margin-bottom:3px">sin tool_calls → 3 ramas simultáneas</div>
+      <div class="vline"></div>
+
+      <!-- parallel box: 2 subgrafos -->
+      <div class="par-wrap" style="width:100%">
+        <span class="par-label">subgrafos (estado privado)</span>
+        <div class="par-box">
+
+          <div class="sub-col">
+            <div class="sub-title">summary_subgraph</div>
+            <div class="node node-sub">filter_messages<span class="badge">nodo 1</span></div>
+            <div class="priv-tag">→ clean_messages (privado)</div>
+            <div class="vline-sm"></div>
+            <div class="node node-sub">call_llm<span class="badge">nodo 2</span></div>
+            <div class="out-tag">→ summary</div>
+            <div class="out-tag">→ parallel_outputs</div>
+          </div>
+
+          <div class="sub-col">
+            <div class="sub-title">analysis_subgraph</div>
+            <div class="node node-sub">extract_metrics<span class="badge">nodo 1</span></div>
+            <div class="priv-tag">→ metrics (privado)</div>
+            <div class="vline-sm"></div>
+            <div class="node node-sub">generate_insight<span class="badge">nodo 2</span></div>
+            <div class="out-tag">→ parallel_outputs</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- map-reduce box -->
+      <div class="vline-sm" style="height:8px"></div>
+      <div class="mr-wrap" style="width:100%">
+        <span class="mr-label">map-reduce — Send API</span>
+        <div class="mr-box" style="flex-direction:row;gap:1rem;align-items:flex-start">
+
+          <div class="sub-col">
+            <div class="sub-title">gateway</div>
+            <div class="node node-gw">list_pending_tasks</div>
+            <div class="out-tag">→ pending_tasks</div>
+            <div class="vline-sm"></div>
+            <div style="font-size:0.6rem;color:#fbbf24;border:1px solid #d97706;border-radius:3px;padding:1px 6px;background:#1c1208">send_to_assess (edge fn)</div>
+          </div>
+
+          <div class="sub-col" style="margin-top:18px">
+            <div class="send-tag">Send×N (1 por tarea)</div>
+            <div class="vline-sm"></div>
+            <div class="node node-map">assess_task<span class="badge">×N paralelo (MAP)</span></div>
+            <div class="out-tag">→ task_assessments[ ]</div>
+            <div class="vline-sm"></div>
+            <div class="node node-reduce">consolidate_tasks<span class="badge">REDUCE</span></div>
+            <div class="out-tag">→ task_report</div>
+          </div>
+
+        </div>
+      </div>
+
+      <div style="font-size:0.65rem;color:#f59e0b;margin-top:6px;text-align:center">
+        <code>operator.add</code> fusiona <code>parallel_outputs</code> y <code>task_assessments</code>
+      </div>
+      <div class="vline"></div>
+      <div class="node node-end">END</div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════ SUBGRAPH NODES ════════════════════════════════ -->
+<h2 class="section-title">Qué hace cada nodo</h2>
+<div class="cards">
+
+  <div class="card">
+    <h3>summary_subgraph</h3>
+    <p class="card-sub">Genera/amplía un resumen para el próximo turno. Estado privado: <code>clean_messages</code>.</p>
+    <div class="node-row nr-shared">
+      <div class="nr-name">filter_messages</div>
+      <div class="nr-desc"><span class="tag tag-in">messages</span> Elimina <code>AIMessage</code> con tool_calls y <code>ToolMessage</code>. Guarda resultado en <code>clean_messages</code> (privado).</div>
+    </div>
+    <div class="arrow-row">↓ clean_messages → call_llm</div>
+    <div class="node-row nr-priv">
+      <div class="nr-name">call_llm</div>
+      <div class="nr-desc"><span class="tag tag-prv">clean_messages</span> <span class="tag tag-in">summary</span> Invoca LLM. Devuelve <code>summary</code> actualizado y añade a <code>parallel_outputs</code>.</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>analysis_subgraph</h3>
+    <p class="card-sub">Extrae métricas y genera insight con LLM. Estado privado: <code>metrics</code>.</p>
+    <div class="node-row nr-shared">
+      <div class="nr-name">extract_metrics</div>
+      <div class="nr-desc"><span class="tag tag-in">messages</span> Cuenta mensajes por rol y llamadas por tool. Guarda dict en <code>metrics</code> (privado).</div>
+    </div>
+    <div class="arrow-row">↓ metrics → generate_insight</div>
+    <div class="node-row nr-priv">
+      <div class="nr-name">generate_insight</div>
+      <div class="nr-desc"><span class="tag tag-prv">metrics</span> LLM genera frase describiendo patrón de uso. Añade a <code>parallel_outputs</code>.</div>
+    </div>
+  </div>
+
+  <div class="card mr">
+    <h3>map-reduce (Send API)</h3>
+    <p class="card-sub">Evalúa todas las tareas pendientes en paralelo. Estado privado por tarea: <code>TaskAssessState</code>.</p>
+    <div class="node-row nr-shared">
+      <div class="nr-name">list_pending_tasks</div>
+      <div class="nr-desc">Lee DB: <code>SELECT … WHERE completada=0</code>. Guarda lista en <code>pending_tasks</code>.</div>
+    </div>
+    <div class="arrow-row">↓ send_to_assess (edge fn) → [Send×N] o ["consolidate_tasks"]</div>
+    <div class="node-row nr-map">
+      <div class="nr-name">assess_task ×N</div>
+      <div class="nr-desc"><span class="tag tag-snd">TaskAssessState</span> Cada Send lleva <code>&#123;task_id, task_desc&#125;</code>. LLM evalúa urgencia. Añade a <code>task_assessments[ ]</code> vía <code>operator.add</code>.</div>
+    </div>
+    <div class="arrow-row">↓ todos los assess_task convergen aquí (fan-in automático)</div>
+    <div class="node-row nr-reduce">
+      <div class="nr-name">consolidate_tasks</div>
+      <div class="nr-desc"><span class="tag tag-in">task_assessments</span> LLM genera informe de prioridad ordenado. Escribe <code>task_report</code> al estado padre.</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══════════ DECLARACIÓN ════════════════════════════════════ -->
+<h2 class="section-title">Cómo se declaran</h2>
+<div class="decl">
+
+  <div class="decl-grid">
+    <div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:0.5rem">Subgrafos: StateGraph con output_schema para filtrar claves privadas</p>
+<pre><span class="kw">class</span> <span class="cn">SummarySubgraphState</span>(TypedDict):
+    messages: List[BaseMessage]  <span class="cm"># compartida</span>
+    summary: str                 <span class="cm"># compartida</span>
+    clean_messages: List[...]    <span class="cm"># PRIVADA — no en State padre</span>
+
+<span class="kw">class</span> <span class="cn">SummarySubgraphOutputState</span>(TypedDict):
+    summary: str           <span class="cm"># qué se escribe al padre</span>
+    parallel_outputs: List[str]
+
+<span class="nb">_b</span> = <span class="fn">StateGraph</span>(<span class="cn">SummarySubgraphState</span>,
+              output_schema=<span class="cn">SummarySubgraphOutputState</span>)
+<span class="nb">_b</span>.<span class="fn">add_node</span>(<span class="st">"filter_messages"</span>, filter_messages_node)
+<span class="nb">_b</span>.<span class="fn">add_node</span>(<span class="st">"call_llm"</span>, call_llm_node)
+<span class="nb">_b</span>.<span class="fn">add_edge</span>(START, <span class="st">"filter_messages"</span>)
+<span class="nb">_b</span>.<span class="fn">add_edge</span>(<span class="st">"filter_messages"</span>, <span class="st">"call_llm"</span>)
+<span class="nb">_b</span>.<span class="fn">add_edge</span>(<span class="st">"call_llm"</span>, END)
+summary_subgraph = <span class="nb">_b</span>.<span class="fn">compile</span>()</pre>
+    </div>
+
+    <div>
+      <p style="font-size:0.78rem;color:#64748b;margin-bottom:0.5rem">Map-Reduce: Send API con estado privado por invocación</p>
+<pre><span class="kw">class</span> <span class="cn">TaskAssessState</span>(TypedDict):  <span class="cm"># estado privado del Send</span>
+    task_id: int
+    task_desc: str
+
+<span class="kw">def</span> <span class="fn">send_to_assess</span>(state):  <span class="cm"># edge function — MAP</span>
+    tasks = state.get(<span class="st">"pending_tasks"</span>) or []
+    <span class="kw">if not</span> tasks:
+        <span class="kw">return</span> [<span class="st">"consolidate_tasks"</span>]  <span class="cm"># skip map</span>
+    <span class="kw">return</span> [
+        <span class="fn">Send</span>(<span class="st">"assess_task"</span>, {<span class="st">"task_id"</span>: t[<span class="st">"id"</span>], <span class="st">"task_desc"</span>: t[<span class="st">"desc"</span>]})
+        <span class="kw">for</span> t <span class="kw">in</span> tasks     <span class="cm"># 1 Send por tarea → N paralelos</span>
+    ]
+
+<span class="cm"># Nodo MAP: recibe TaskAssessState vía Send</span>
+<span class="kw">def</span> <span class="fn">assess_task</span>(state: <span class="cn">TaskAssessState</span>):
+    response = llm.<span class="fn">invoke</span>(...)
+    <span class="kw">return</span> {<span class="st">"task_assessments"</span>: [<span class="st">f"[ID {state['task_id']}] ..."</span>]}
+    <span class="cm"># → operator.add acumula en el padre</span>
+
+builder.<span class="fn">add_conditional_edges</span>(
+    <span class="st">"list_pending_tasks"</span>, send_to_assess,
+    [<span class="st">"assess_task"</span>, <span class="st">"consolidate_tasks"</span>],
+)
+builder.<span class="fn">add_edge</span>(<span class="st">"assess_task"</span>, <span class="st">"consolidate_tasks"</span>)
+builder.<span class="fn">add_edge</span>(<span class="st">"consolidate_tasks"</span>, END)</pre>
+    </div>
+  </div>
+
+  <div style="margin-bottom:1.4rem">
+    <p style="font-size:0.78rem;color:#64748b;margin-bottom:0.5rem">Estado padre con todas las claves compartidas y reducers</p>
+<pre><span class="kw">class</span> <span class="cn">State</span>(MessagesState):
+    summary: str                                                  <span class="cm"># ← summary_subgraph escribe</span>
+    parallel_outputs: Annotated[List[str], operator.add]          <span class="cm"># ← summary + analysis acumulan</span>
+    pending_tasks: List[dict]                                     <span class="cm"># ← list_pending_tasks escribe</span>
+    task_assessments: Annotated[List[str], operator.add]          <span class="cm"># ← assess_task×N acumulan (MAP)</span>
+    task_report: str                                              <span class="cm"># ← consolidate_tasks escribe (REDUCE)</span>
+
+<span class="kw">def</span> <span class="fn">route_from_agente</span>(state) -> list[str]:
+    <span class="kw">if</span> <span class="fn">_has_pending_tool_calls</span>(state[<span class="st">"messages"</span>]):
+        <span class="kw">return</span> [<span class="st">"tools"</span>]
+    <span class="kw">return</span> [<span class="st">"summary_subgraph"</span>, <span class="st">"analysis_subgraph"</span>, <span class="st">"list_pending_tasks"</span>]  <span class="cm"># 3 ramas</span></pre>
+  </div>
+
+</div>
+
+<!-- ═══════════ REGLAS ══════════════════════════════════════════ -->
+<h2 class="section-title">Reglas clave</h2>
+<div class="rule-grid">
+
+  <div class="rule-card">
+    <h4>Claves solapadas</h4>
+    <p>LangGraph sincroniza padre↔subgrafo por nombre de clave. <code>messages</code> y <code>summary</code> en <code>SummarySubgraphState</code> coinciden con <code>State</code> → comunicación automática.</p>
+  </div>
+
+  <div class="rule-card">
+    <h4>output_schema = filtro</h4>
+    <p>Solo las claves del <code>output_schema</code> se escriben al padre. <code>clean_messages</code> y <code>metrics</code> no están en ningún output_schema → nunca salen del subgrafo.</p>
+  </div>
+
+  <div class="rule-card mr">
+    <h4>Send API (map)</h4>
+    <p><code>Send("nodo", estado)</code> lanza una invocación independiente con su propio estado privado (<code>TaskAssessState</code>). El número de invocaciones es dinámico: se decide en tiempo de ejecución, no de compilación.</p>
+  </div>
+
+  <div class="rule-card mr">
+    <h4>operator.add (reduce)</h4>
+    <p>Cada <code>assess_task</code> devuelve <code>&#123;"task_assessments": [...]&#125;</code>. Como el padre tiene <code>Annotated[List, operator.add]</code>, LangGraph concatena todos los resultados paralelos automáticamente antes de llegar a <code>consolidate_tasks</code>.</p>
+  </div>
+
+</div>
+
+</body>
+</html>
