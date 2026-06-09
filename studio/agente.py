@@ -193,23 +193,45 @@ memory = SqliteSaver(conn)
 graph = builder.compile(interrupt_before=["tools"], checkpointer=memory)
 
 # Guarda imagen del grafo en agente_sqlite/graph.png
-graph_png = os.path.join(os.path.dirname(__file__), "..", "graph.png")
-with open(graph_png, "wb") as f:
-    f.write(graph.get_graph().draw_mermaid_png())
+#graph_png = os.path.join(os.path.dirname(__file__), "..", "graph.png")
+#with open(graph_png, "wb") as f:
+#    f.write(graph.get_graph().draw_mermaid_png())
 
 
 # --- Bucle de terminal ---
 
 if __name__ == "__main__":
     # thread_id identifica la conversación; el mismo ID recupera el historial entre ejecuciones
-    config = {"configurable": {"thread_id": "1"}}
+    config = {"configurable": {"thread_id": "14"}}
     print("Agente listo. Escribe 'salir' para terminar.\n")
 
-    while True:
-        texto = input("Tú: ").strip()
-        if not texto or texto.lower() == "salir":
-            break
+    initial_input = {"messages": "Guarda la tarea 'Limpiar'"}
 
-        result = graph.invoke({"messages": [HumanMessage(content=texto)]}, config)
-        respuesta = result["messages"][-1].content
-        print(f"Agente: {respuesta}\n")
+
+    for event in graph.stream(initial_input, config, stream_mode="values"):
+        event['messages'][-1].pretty_print()
+
+    import copy
+
+    state = graph.get_state(config)
+    last_msg = state.values["messages"][-1]  # AIMessage con tool_calls
+    print(f"Tool pendiente: {last_msg.tool_calls}")
+
+    # Modificar args del tool_call: cambiar "Limpiar" por "Fregar"
+    modified_tool_calls = copy.deepcopy(last_msg.tool_calls)
+    modified_tool_calls[0]["args"]["descripcion"] = "Fregar"
+
+    new_msg = AIMessage(
+        content=last_msg.content,
+        tool_calls=modified_tool_calls,
+        id=last_msg.id,  # mismo id → reemplaza el mensaje existente
+    )
+    graph.update_state(config, {"messages": [new_msg]}, as_node="agente")
+
+    user_approval = input("Do you want to call the tool? (yes/no): ")
+
+    if user_approval.lower() == "yes":
+        for event in graph.stream(None, config, stream_mode="values"):
+            event['messages'][-1].pretty_print()
+    else:
+        print("Operation cancelled by user.")
